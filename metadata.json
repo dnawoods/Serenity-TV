@@ -1,0 +1,6 @@
+{
+  "name": "Serenity TV",
+  "description": "A cinematic nature loop application for Google TV with 4K visuals, optimized for D-pad navigation and background music compatibility.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["android"]
+}
