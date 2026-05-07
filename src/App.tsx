@@ -20,6 +20,7 @@ import { VideoScene } from './types';
 
 export default function App() {
   const [selectedScene, setSelectedScene] = useState<VideoScene>(VIDEO_SCENES[0]);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const [showUI, setShowUI] = useState(true);
   const [activeCategory, setActiveCategory] = useState('All');
@@ -27,6 +28,7 @@ export default function App() {
   const [isSidebarFocused, setIsSidebarFocused] = useState(true);
   
   const uiTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const filteredScenes = activeCategory === 'All' 
     ? VIDEO_SCENES 
@@ -46,6 +48,13 @@ export default function App() {
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     resetUITimer();
     
+    if (['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.key)) {
+      if (isPlaying) {
+        setIsPlaying(false);
+        setShowUI(true);
+      }
+    }
+
     if (e.key === 'ArrowRight') {
       if (isSidebarFocused) {
         setIsSidebarFocused(false);
@@ -76,15 +85,23 @@ export default function App() {
     } else if (e.key === 'Enter') {
       if (!isSidebarFocused) {
         setSelectedScene(filteredScenes[focusedIndex]);
-      } else if (e.key === 'Enter') {
-        // Toggle Mute if somehow focused or just use dedicated key
+        setIsPlaying(true);
+        setShowUI(false);
+        
+        // Trigger fullscreen on select
+        if (containerRef.current && !document.fullscreenElement) {
+          containerRef.current.requestFullscreen().catch(err => {
+            console.warn(`Fullscreen error: ${err.message}`);
+          });
+        }
       }
     } else if (e.key === 'm' || e.key === 'M') {
       setIsMuted(prev => !prev);
     } else if (e.key === 'Escape' || e.key === 'Backspace') {
       setShowUI(true);
+      setIsPlaying(false);
     }
-  }, [isSidebarFocused, focusedIndex, filteredScenes, activeCategory, resetUITimer]);
+  }, [isSidebarFocused, focusedIndex, filteredScenes, activeCategory, resetUITimer, isPlaying]);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
@@ -97,20 +114,51 @@ export default function App() {
     resetUITimer();
   };
 
+  const focusedScene = filteredScenes[focusedIndex] || selectedScene;
+
   return (
-    <div className="relative w-full h-screen bg-black text-white overflow-hidden font-sans select-none">
-      {/* 4K Video Loop Player */}
-      <div className="absolute inset-0 z-0 overflow-hidden">
-        <iframe
-          key={selectedScene.youtubeId + (isMuted ? 'muted' : 'unmuted')}
-          id="nature-player"
-          className="w-[100vw] h-[56.25vw] min-h-[100vh] min-w-[177.77vh] absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none scale-105"
-          src={`https://www.youtube.com/embed/${selectedScene.youtubeId}?autoplay=1&loop=1&playlist=${selectedScene.youtubeId}&controls=0&mute=${isMuted ? 1 : 0}&showinfo=0&rel=0&iv_load_policy=3&disablekb=1&modestbranding=1`}
-          allow="autoplay; encrypted-media"
-          frameBorder="0"
-        />
+    <div ref={containerRef} className="relative w-full h-screen bg-black text-white overflow-hidden font-sans select-none">
+      {/* 4K Background Layer */}
+      <div className="absolute inset-0 z-0 overflow-hidden bg-black">
+        <AnimatePresence>
+          {isPlaying ? (
+            <motion.div
+              key={`video-${selectedScene.youtubeId}`}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 1.2 }}
+              className="absolute inset-0"
+            >
+              <iframe
+                id="nature-player"
+                className="w-[100vw] h-[56.25vw] min-h-[100vh] min-w-[177.77vh] absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 scale-105"
+                src={`https://www.youtube.com/embed/${selectedScene.youtubeId}?autoplay=1&mute=${isMuted ? 1 : 0}&loop=1&playlist=${selectedScene.youtubeId}&controls=0&rel=0&modestbranding=1`}
+                allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+                frameBorder="0"
+              />
+            </motion.div>
+          ) : (
+            <motion.div
+              key={`thumb-${focusedScene.id}`}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.8 }}
+              className="absolute inset-0"
+            >
+              <img 
+                src={focusedScene.thumbnail} 
+                className="w-full h-full object-cover scale-110 blur-[2px] opacity-60"
+                alt=""
+              />
+              <div className="absolute inset-0 bg-black/40" />
+            </motion.div>
+          )}
+        </AnimatePresence>
+        
         {/* Cinematic Vignette */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 pointer-events-none" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/20 to-black/60 pointer-events-none" />
       </div>
 
       {/* UI Overlay */}
@@ -182,6 +230,12 @@ export default function App() {
                 {CATEGORIES.map((cat) => (
                   <motion.button
                     key={cat}
+                    onClick={() => {
+                      setActiveCategory(cat);
+                      setFocusedIndex(0);
+                      setIsSidebarFocused(true);
+                      resetUITimer();
+                    }}
                     whileHover={{ scale: 1.05 }}
                     className={`px-8 py-3 rounded-full text-sm font-bold tracking-widest uppercase transition-all duration-300 outline-none border-2 ${
                       activeCategory === cat 
@@ -205,6 +259,19 @@ export default function App() {
                   return (
                     <motion.div
                       key={scene.id}
+                      onClick={() => {
+                        setSelectedScene(scene);
+                        setIsPlaying(true);
+                        setShowUI(false);
+                        setFocusedIndex(idx);
+                        setIsSidebarFocused(false);
+                        
+                        if (containerRef.current && !document.fullscreenElement) {
+                          containerRef.current.requestFullscreen().catch(err => {
+                            console.warn(`Fullscreen error: ${err.message}`);
+                          });
+                        }
+                      }}
                       animate={{
                         scale: isFocused ? 1.1 : 1,
                         x: -Math.max(0, focusedIndex - 1) * 440,
@@ -255,13 +322,10 @@ export default function App() {
             <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-[0.4em] text-white/30 border-t border-white/5 pt-8">
               <div className="flex gap-12">
                 <span className="flex items-center gap-3">
-                  <span className="bg-white/10 px-2 py-1 rounded">Arrows</span> Navigate
+                  <span className="bg-white/10 px-3 py-1 rounded">D-PAD</span> Browse Scenes
                 </span>
                 <span className="flex items-center gap-3">
-                  <span className="bg-white/10 px-2 py-1 rounded text-white/60">Enter</span> Change Scene
-                </span>
-                <span className="flex items-center gap-3">
-                  <span className="bg-white/10 px-2 py-1 rounded text-white/60">M</span> Toggle Sound
+                  <span className="bg-white/10 px-3 py-1 rounded text-white/60">OK</span> Select
                 </span>
               </div>
               <div className="flex items-center gap-4">

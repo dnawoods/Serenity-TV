@@ -6,4 +6,4 @@ export interface VideoScene {
   thumbnail: string;
 }
 
-export type Category = 'All' | 'Forest' | 'Ocean' | 'Space' | 'Desert' | 'Mountains';
+export type Category = 'All' | 'Forest' | 'Ocean' | 'Space' | 'Desert' | 'Mountains' | 'Waterfalls' | 'Winter Landscapes';
