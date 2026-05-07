@@ -206,10 +206,6 @@ export default function App() {
                 transition={{ delay: 0.4 }}
                 className="flex flex-col items-end gap-4"
               >
-                <div className="text-right">
-                  <p className="text-xs uppercase tracking-[0.3em] font-bold text-blue-400 mb-1">Now Playing</p>
-                  <h2 className="text-3xl font-light">{selectedScene.title}</h2>
-                </div>
                 <button 
                   onClick={toggleMute}
                   className={`p-5 rounded-full backdrop-blur-xl border transition-all duration-500 focus:ring-8 focus:ring-blue-500/50 outline-none ${
