@@ -24,8 +24,9 @@ export default function App() {
   const [isMuted, setIsMuted] = useState(true);
   const [showUI, setShowUI] = useState(true);
   const [activeCategory, setActiveCategory] = useState('All');
-  const [focusedIndex, setFocusedIndex] = useState(0);
-  const [isSidebarFocused, setIsSidebarFocused] = useState(true);
+  const [focusedSection, setFocusedSection] = useState<'categories' | 'scenes' | 'header'>('categories');
+  const [focusedCategoryIndex, setFocusedCategoryIndex] = useState(0);
+  const [focusedSceneIndex, setFocusedSceneIndex] = useState(0);
   
   const uiTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -35,86 +36,110 @@ export default function App() {
     : VIDEO_SCENES.filter(s => s.category === activeCategory);
 
   // Auto-hide UI
-  const resetUITimer = useCallback(() => {
-    setShowUI(true);
+  const resetUITimer = useCallback((forceShow = true) => {
+    if (forceShow) setShowUI(true);
     if (uiTimeoutRef.current) clearTimeout(uiTimeoutRef.current);
     uiTimeoutRef.current = setTimeout(() => {
-      // Don't auto-hide if sidebar is focused to avoid confusion
-      if (!isSidebarFocused) setShowUI(false);
-    }, 8000);
-  }, [isSidebarFocused]);
+      setShowUI(false);
+    }, 10000);
+  }, []);
 
   // TV Navigation Logic
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    resetUITimer();
-    
-    if (['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.key)) {
-      if (isPlaying) {
-        setIsPlaying(false);
+    // If UI is hidden, any key should just show it first
+    const isOkKey = ['Enter', 'Select', 'Center'].includes(e.key);
+    const isNavigationKey = ['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.key);
+
+    // Get current state via functional updates or by managing carefully
+    // To avoid dependency loop on showUI, we can't easily check 'showUI' here
+    // unless we use a ref or include it. Let's include it but fix the effect.
+
+    if (!showUI) {
+      if (isOkKey || isNavigationKey) {
         setShowUI(true);
+        resetUITimer(true);
+        if (isPlaying && !isOkKey) return; 
       }
+    } else {
+      resetUITimer(true);
     }
 
-    if (e.key === 'ArrowRight') {
-      if (isSidebarFocused) {
-        setIsSidebarFocused(false);
-        setFocusedIndex(0);
-      } else {
-        setFocusedIndex(prev => Math.min(prev + 1, filteredScenes.length - 1));
+    if (focusedSection === 'header') {
+      if (e.key === 'ArrowDown') {
+        setFocusedSection('categories');
+      } else if (isOkKey) {
+        setIsMuted(prev => !prev);
       }
-    } else if (e.key === 'ArrowLeft') {
-      if (!isSidebarFocused && focusedIndex === 0) {
-        setIsSidebarFocused(true);
-      } else if (!isSidebarFocused) {
-        setFocusedIndex(prev => Math.max(prev - 1, 0));
+    } 
+    else if (focusedSection === 'categories') {
+      if (e.key === 'ArrowRight') {
+        setFocusedCategoryIndex(prev => Math.min(prev + 1, CATEGORIES.length - 1));
+      } else if (e.key === 'ArrowLeft') {
+        setFocusedCategoryIndex(prev => Math.max(prev - 1, 0));
+      } else if (e.key === 'ArrowDown') {
+        setFocusedSection('scenes');
+        setFocusedSceneIndex(0);
+      } else if (e.key === 'ArrowUp') {
+        setFocusedSection('header');
+      } else if (isOkKey) {
+        setActiveCategory(CATEGORIES[focusedCategoryIndex]);
+        setFocusedSceneIndex(0);
       }
-    } else if (e.key === 'ArrowDown') {
-      if (isSidebarFocused) {
-        const currentIdx = CATEGORIES.indexOf(activeCategory);
-        const nextCatIdx = (currentIdx + 1) % CATEGORIES.length;
-        setActiveCategory(CATEGORIES[nextCatIdx]);
-        setFocusedIndex(0);
-      }
-    } else if (e.key === 'ArrowUp') {
-      if (isSidebarFocused) {
-        const currentIdx = CATEGORIES.indexOf(activeCategory);
-        const prevCatIdx = (currentIdx - 1 + CATEGORIES.length) % CATEGORIES.length;
-        setActiveCategory(CATEGORIES[prevCatIdx]);
-        setFocusedIndex(0);
-      }
-    } else if (e.key === 'Enter') {
-      if (!isSidebarFocused) {
-        setSelectedScene(filteredScenes[focusedIndex]);
+    } 
+    else if (focusedSection === 'scenes') {
+      if (e.key === 'ArrowRight') {
+        setFocusedSceneIndex(prev => Math.min(prev + 1, filteredScenes.length - 1));
+      } else if (e.key === 'ArrowLeft') {
+        if (focusedSceneIndex === 0) {
+          // Stay in scenes
+        } else {
+          setFocusedSceneIndex(prev => Math.max(prev - 1, 0));
+        }
+      } else if (e.key === 'ArrowUp') {
+        setFocusedSection('categories');
+      } else if (isOkKey) {
+        const targetScene = filteredScenes[focusedSceneIndex];
+        setSelectedScene(targetScene);
         setIsPlaying(true);
         setShowUI(false);
+        if (uiTimeoutRef.current) clearTimeout(uiTimeoutRef.current);
         
-        // Trigger fullscreen on select
         if (containerRef.current && !document.fullscreenElement) {
           containerRef.current.requestFullscreen().catch(err => {
             console.warn(`Fullscreen error: ${err.message}`);
           });
         }
+        return; // Exit early to avoid UI reset
       }
-    } else if (e.key === 'm' || e.key === 'M') {
+    }
+
+    if (e.key === 'm' || e.key === 'M') {
       setIsMuted(prev => !prev);
     } else if (e.key === 'Escape' || e.key === 'Backspace') {
-      setShowUI(true);
-      setIsPlaying(false);
+      if (isPlaying) {
+        setIsPlaying(false);
+        setShowUI(true);
+        resetUITimer(true);
+      } else if (focusedSection !== 'categories') {
+        setFocusedSection('categories');
+        resetUITimer(true);
+      }
     }
-  }, [isSidebarFocused, focusedIndex, filteredScenes, activeCategory, resetUITimer, isPlaying]);
+  }, [focusedSection, focusedCategoryIndex, focusedSceneIndex, filteredScenes, isPlaying, showUI, resetUITimer]);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
-    resetUITimer();
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown, resetUITimer]);
+  }, [handleKeyDown]);
 
   const toggleMute = () => {
     setIsMuted(!isMuted);
     resetUITimer();
   };
 
-  const focusedScene = filteredScenes[focusedIndex] || selectedScene;
+  const focusedScene = focusedSection === 'scenes' 
+    ? filteredScenes[focusedSceneIndex] 
+    : (isPlaying ? selectedScene : filteredScenes[0]);
 
   return (
     <div ref={containerRef} className="relative w-full h-screen bg-black text-white overflow-hidden font-sans select-none">
@@ -157,8 +182,7 @@ export default function App() {
           )}
         </AnimatePresence>
         
-        {/* Cinematic Vignette */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/20 to-black/60 pointer-events-none" />
+        {/* The vignette was removed to improve video brightness */}
       </div>
 
       {/* UI Overlay */}
@@ -169,7 +193,7 @@ export default function App() {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 1.05 }}
             transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-            className="absolute inset-0 z-10 flex flex-col justify-between p-16 bg-gradient-to-r from-black/90 via-black/40 to-transparent"
+            className="absolute inset-0 z-10 flex flex-col justify-between p-16 bg-gradient-to-r from-black/80 via-black/20 to-transparent"
           >
             {/* Header */}
             <div className="flex justify-between items-start">
@@ -208,7 +232,11 @@ export default function App() {
               >
                 <button 
                   onClick={toggleMute}
-                  className={`p-5 rounded-full backdrop-blur-xl border transition-all duration-500 focus:ring-8 focus:ring-blue-500/50 outline-none ${
+                  className={`p-5 rounded-full backdrop-blur-xl border transition-all duration-500 outline-none ${
+                    focusedSection === 'header' 
+                      ? 'ring-8 ring-blue-500/50 scale-110 border-blue-400' 
+                      : ''
+                  } ${
                     isMuted 
                       ? 'bg-white/5 border-white/10 text-white/60' 
                       : 'bg-blue-600 border-blue-400 text-white shadow-xl shadow-blue-600/40'
@@ -223,33 +251,41 @@ export default function App() {
             <div className="flex flex-col gap-10">
               {/* Category Rails */}
               <div className="flex gap-4">
-                {CATEGORIES.map((cat) => (
-                  <motion.button
-                    key={cat}
-                    onClick={() => {
-                      setActiveCategory(cat);
-                      setFocusedIndex(0);
-                      setIsSidebarFocused(true);
-                      resetUITimer();
-                    }}
-                    whileHover={{ scale: 1.05 }}
-                    className={`px-8 py-3 rounded-full text-sm font-bold tracking-widest uppercase transition-all duration-300 outline-none border-2 ${
-                      activeCategory === cat 
-                        ? 'bg-white text-black border-white' 
-                        : (isSidebarFocused && activeCategory === cat 
-                            ? 'bg-white/20 border-blue-400 shadow-lg shadow-blue-500/30' 
-                            : 'bg-transparent border-white/10 text-white/40 hover:text-white')
-                    }`}
-                  >
-                    {cat}
-                  </motion.button>
-                ))}
+                {CATEGORIES.map((cat, idx) => {
+                  const isFocused = focusedSection === 'categories' && focusedCategoryIndex === idx;
+                  const isActive = activeCategory === cat;
+                  
+                  return (
+                    <motion.button
+                      key={cat}
+                      onClick={() => {
+                        setActiveCategory(cat);
+                        setFocusedCategoryIndex(idx);
+                        setFocusedSection('categories');
+                        setFocusedSceneIndex(0);
+                        resetUITimer();
+                      }}
+                      animate={{ 
+                        scale: isFocused ? 1.1 : 1,
+                        backgroundColor: isActive ? "rgba(255, 255, 255, 1)" : (isFocused ? "rgba(255, 255, 255, 0.2)" : "rgba(255, 255, 255, 0)"),
+                        color: isActive ? "rgba(0, 0, 0, 1)" : (isFocused ? "rgba(255, 255, 255, 1)" : "rgba(255, 255, 255, 0.4)"),
+                        borderColor: isFocused ? "rgba(96, 165, 250, 1)" : (isActive ? "rgba(255, 255, 255, 1)" : "rgba(255, 255, 255, 0.1)")
+                      }}
+                      className="px-8 py-3 rounded-full text-sm font-bold tracking-widest uppercase transition-all duration-300 outline-none border-2 shadow-lg shadow-transparent"
+                      style={{
+                        boxShadow: isFocused ? "0 0 30px rgba(59, 130, 246, 0.3)" : "none"
+                      }}
+                    >
+                      {cat}
+                    </motion.button>
+                  );
+                })}
               </div>
 
               {/* Scene Row */}
               <div className="flex gap-8 overflow-visible">
                 {filteredScenes.map((scene, idx) => {
-                  const isFocused = !isSidebarFocused && focusedIndex === idx;
+                  const isFocused = focusedSection === 'scenes' && focusedSceneIndex === idx;
                   const isCurrent = selectedScene.id === scene.id;
 
                   return (
@@ -259,8 +295,8 @@ export default function App() {
                         setSelectedScene(scene);
                         setIsPlaying(true);
                         setShowUI(false);
-                        setFocusedIndex(idx);
-                        setIsSidebarFocused(false);
+                        setFocusedSceneIndex(idx);
+                        setFocusedSection('scenes');
                         
                         if (containerRef.current && !document.fullscreenElement) {
                           containerRef.current.requestFullscreen().catch(err => {
@@ -270,8 +306,8 @@ export default function App() {
                       }}
                       animate={{
                         scale: isFocused ? 1.1 : 1,
-                        x: -Math.max(0, focusedIndex - 1) * 440,
-                        opacity: !isSidebarFocused && Math.abs(focusedIndex - idx) > 3 ? 0.3 : 1
+                        x: -Math.max(0, focusedSceneIndex - 1) * 440,
+                        opacity: focusedSection === 'scenes' && Math.abs(focusedSceneIndex - idx) > 3 ? 0.3 : 1
                       }}
                       transition={{ type: "spring", stiffness: 300, damping: 30 }}
                       className={`relative min-w-[400px] h-[240px] rounded-[2rem] overflow-hidden transition-all duration-500 border-4 ${
